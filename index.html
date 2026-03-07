@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>User Story Map Builder</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="page">
+      <header class="page-header">
+        <h1>User Story Map Builder</h1>
+        <div class="header-actions">
+          <button id="toggle-legend" class="btn">Fold left panel</button>
+          <button id="add-activity" class="btn primary">+ Activity</button>
+        </div>
+      </header>
+
+      <section class="map-shell">
+        <aside class="legend">
+          <div class="legend-item">
+            <span class="legend-index">1.</span>
+            <div>
+              <h2>Activities</h2>
+              <p>High-level goals users complete in your product.</p>
+            </div>
+          </div>
+          <div class="legend-item">
+            <span class="legend-index">2.</span>
+            <div>
+              <h2>Steps</h2>
+              <p>Key actions users take for each activity.</p>
+            </div>
+          </div>
+          <div class="legend-item">
+            <span class="legend-index">3.</span>
+            <div>
+              <h2>Details</h2>
+              <p>Specific interactions needed to complete each step.</p>
+            </div>
+          </div>
+        </aside>
+
+        <section class="board-area">
+          <div id="board"></div>
+        </section>
+      </section>
+    </main>
+
+    <template id="empty-step-template">
+      <div class="empty-note">No steps yet. Add one from the activity card.</div>
+    </template>
+
+    <div id="editor-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+      <div class="modal-card">
+        <h2 id="modal-title" class="modal-title">Edit</h2>
+        <label class="modal-label" for="modal-input">Title</label>
+        <input id="modal-input" class="modal-input" type="text" />
+        <p id="modal-error" class="modal-error hidden">Please enter a value.</p>
+        <div class="modal-actions">
+          <button id="modal-cancel" class="btn">Cancel</button>
+          <button id="modal-delete" class="btn warn hidden">Delete</button>
+          <button id="modal-save" class="btn primary">Save</button>
+        </div>
+      </div>
+    </div>
+
+    <script src="./app.js" defer></script>
+  </body>
+</html>
