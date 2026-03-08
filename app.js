@@ -1,5 +1,15 @@
 const STORAGE_KEY = "user-story-map-v1";
 const UI_STORAGE_KEY = "user-story-map-ui-v1";
+const DETAIL_STATUS = ["to_analyze", "to_estimate", "ready", "in_progress", "done", "cancelled"];
+const DETAIL_STATUS_LABELS = {
+  to_analyze: "To analyze",
+  to_estimate: "To estimate",
+  ready: "Ready",
+  in_progress: "In progress",
+  done: "Done",
+  cancelled: "Cancelled",
+};
+const VALID_FILTERS = ["all", ...DETAIL_STATUS];
 
 const seedData = [
   {
@@ -12,6 +22,7 @@ const seedData = [
         details: ["Enter username or email", "Enter password", "Press login button"].map((text) => ({
           id: crypto.randomUUID(),
           text,
+          status: "to_analyze",
         })),
       },
       {
@@ -20,6 +31,7 @@ const seedData = [
         details: ["View account balances", "See pending transactions", "Open new account"].map((text) => ({
           id: crypto.randomUUID(),
           text,
+          status: "to_analyze",
         })),
       },
     ],
@@ -34,6 +46,7 @@ const seedData = [
         details: ["Choose account", "Enter deposit amount", "View transaction limits"].map((text) => ({
           id: crypto.randomUUID(),
           text,
+          status: "to_analyze",
         })),
       },
       {
@@ -42,6 +55,7 @@ const seedData = [
         details: ["Read tips for taking check photos"].map((text) => ({
           id: crypto.randomUUID(),
           text,
+          status: "to_analyze",
         })),
       },
       {
@@ -50,6 +64,7 @@ const seedData = [
         details: ["Enable camera access", "Turn phone horizontal", "Take photo of front & back"].map((text) => ({
           id: crypto.randomUUID(),
           text,
+          status: "to_analyze",
         })),
       },
       {
@@ -58,6 +73,7 @@ const seedData = [
         details: ["Confirm deposit", "Understand amount available", "Cancel deposit"].map((text) => ({
           id: crypto.randomUUID(),
           text,
+          status: "to_analyze",
         })),
       },
       {
@@ -66,6 +82,7 @@ const seedData = [
         details: ["View confirmation message", "Receive email confirmation"].map((text) => ({
           id: crypto.randomUUID(),
           text,
+          status: "to_analyze",
         })),
       },
     ],
@@ -77,21 +94,26 @@ let activities = loadState();
 const board = document.getElementById("board");
 const addActivityBtn = document.getElementById("add-activity");
 const toggleLegendBtn = document.getElementById("toggle-legend");
+const statusFilter = document.getElementById("status-filter");
+const statusFilterButtons = Array.from(document.querySelectorAll(".status-filter-btn"));
+const toggleStatusMask = document.getElementById("toggle-status-mask");
 const mapShell = document.querySelector(".map-shell");
 const modal = document.getElementById("editor-modal");
 const modalTitle = document.getElementById("modal-title");
 const modalLabel = document.querySelector(".modal-label");
 const modalInput = document.getElementById("modal-input");
+const modalStatusWrap = document.getElementById("modal-status-wrap");
+const modalStatus = document.getElementById("modal-status");
 const modalError = document.getElementById("modal-error");
 const modalSave = document.getElementById("modal-save");
 const modalDelete = document.getElementById("modal-delete");
 const modalCancel = document.getElementById("modal-cancel");
-let modalHandlers = { onSave: null, onDelete: null, deleteConfirmText: "" };
+let modalHandlers = { onSave: null, onDelete: null, deleteConfirmText: "", includeStatus: false };
 let dragState = null;
 const dropIndicator = document.createElement("div");
 dropIndicator.id = "drop-indicator";
 document.body.appendChild(dropIndicator);
-let isLegendCollapsed = loadLegendState();
+let uiState = loadUIState();
 
 addActivityBtn.addEventListener("click", () => {
   openEditorModal({
@@ -111,43 +133,120 @@ addActivityBtn.addEventListener("click", () => {
 });
 
 toggleLegendBtn.addEventListener("click", () => {
-  isLegendCollapsed = !isLegendCollapsed;
-  localStorage.setItem(UI_STORAGE_KEY, JSON.stringify({ legendCollapsed: isLegendCollapsed }));
+  uiState.legendCollapsed = !uiState.legendCollapsed;
+  persistUIState();
   applyLegendState();
+});
+
+statusFilter.addEventListener("click", (event) => {
+  const button = event.target.closest(".status-filter-btn");
+  if (!button) return;
+  const next = button.dataset.status;
+  if (!next || !VALID_FILTERS.includes(next)) return;
+
+  if (next === "all") {
+    uiState.detailFilter = [...DETAIL_STATUS];
+    persistUIState();
+    applyFilterState();
+    render();
+    return;
+  }
+
+  const selected = new Set(uiState.detailFilter);
+  if (selected.has(next)) selected.delete(next);
+  else selected.add(next);
+
+  uiState.detailFilter = DETAIL_STATUS.filter((status) => selected.has(status));
+  persistUIState();
+  applyFilterState();
+  render();
+});
+
+toggleStatusMask.addEventListener("change", () => {
+  uiState.maskDetailStatus = toggleStatusMask.checked;
+  persistUIState();
+  applyStatusMaskState();
 });
 
 function loadState() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return structuredClone(seedData);
+    if (!raw) return normalizeData(structuredClone(seedData));
 
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) throw new Error("Invalid state");
-    return parsed;
+    return normalizeData(parsed);
   } catch {
-    return structuredClone(seedData);
+    return normalizeData(structuredClone(seedData));
   }
 }
 
-function loadLegendState() {
+function loadUIState() {
   try {
     const raw = localStorage.getItem(UI_STORAGE_KEY);
-    if (!raw) return false;
+    if (!raw) return { legendCollapsed: false, detailFilter: [...DETAIL_STATUS], maskDetailStatus: false };
     const parsed = JSON.parse(raw);
-    return Boolean(parsed?.legendCollapsed);
+    const rawFilter = Array.isArray(parsed?.detailFilter) ? parsed.detailFilter : [parsed?.detailFilter].filter(Boolean);
+    const normalizedFilter = rawFilter.map((status) => normalizeStatus(status));
+    const detailFilter = DETAIL_STATUS.filter((status) => normalizedFilter.includes(status));
+    return {
+      legendCollapsed: Boolean(parsed?.legendCollapsed),
+      detailFilter,
+      maskDetailStatus: Boolean(parsed?.maskDetailStatus),
+    };
   } catch {
-    return false;
+    return { legendCollapsed: false, detailFilter: [...DETAIL_STATUS], maskDetailStatus: false };
   }
 }
 
 function applyLegendState() {
-  mapShell.classList.toggle("legend-collapsed", isLegendCollapsed);
-  toggleLegendBtn.textContent = isLegendCollapsed ? "Unfold left panel" : "Fold left panel";
+  mapShell.classList.toggle("legend-collapsed", uiState.legendCollapsed);
+  toggleLegendBtn.textContent = uiState.legendCollapsed ? "Unfold left panel" : "Fold left panel";
+}
+
+function applyFilterState() {
+  const selected = new Set(uiState.detailFilter);
+  statusFilterButtons.forEach((button) => {
+    const key = button.dataset.status;
+    if (key === "all") {
+      button.classList.toggle("active", selected.size === DETAIL_STATUS.length);
+      return;
+    }
+    button.classList.toggle("active", selected.has(key));
+  });
+}
+
+function applyStatusMaskState() {
+  toggleStatusMask.checked = Boolean(uiState.maskDetailStatus);
+  board.classList.toggle("mask-detail-status", Boolean(uiState.maskDetailStatus));
+}
+
+function persistUIState() {
+  localStorage.setItem(UI_STORAGE_KEY, JSON.stringify(uiState));
 }
 
 function persistAndRender() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(activities));
   render();
+}
+
+function normalizeData(data) {
+  data.forEach((activity) => {
+    if (!Array.isArray(activity.steps)) activity.steps = [];
+    activity.steps.forEach((step) => {
+      if (!Array.isArray(step.details)) step.details = [];
+      step.details.forEach((detail) => {
+        detail.status = normalizeStatus(detail.status);
+      });
+    });
+  });
+  return data;
+}
+
+function normalizeStatus(status) {
+  if (status === "todo") return "to_analyze";
+  if (status === "blocked") return "cancelled";
+  return DETAIL_STATUS.includes(status) ? status : "to_analyze";
 }
 
 function removeAt(arr, id) {
@@ -195,9 +294,14 @@ function showDropIndicator(axis, targetRect, placeAfter) {
   dropIndicator.className = "visible y";
 }
 
-function makeNote(title, type, { onOpen = null, quickAdd = null, drag = null } = {}) {
+function makeNote(
+  title,
+  type,
+  { onOpen = null, quickAdd = null, drag = null, detailStatus = null, muted = false } = {},
+) {
   const note = document.createElement("article");
   note.className = `note ${type}`;
+  if (muted) note.classList.add("muted");
   if (onOpen) {
     note.addEventListener("click", onOpen);
     note.setAttribute("role", "button");
@@ -214,6 +318,14 @@ function makeNote(title, type, { onOpen = null, quickAdd = null, drag = null } =
   titleEl.className = "note-title";
   titleEl.textContent = title;
   note.appendChild(titleEl);
+
+  if (detailStatus) {
+    note.classList.add(`detail-status-${detailStatus}`);
+    const chip = document.createElement("div");
+    chip.className = `detail-status-chip status-${detailStatus}`;
+    chip.textContent = DETAIL_STATUS_LABELS[detailStatus] || DETAIL_STATUS_LABELS.to_analyze;
+    note.appendChild(chip);
+  }
 
   if (drag) {
     note.draggable = true;
@@ -272,14 +384,26 @@ function makeNote(title, type, { onOpen = null, quickAdd = null, drag = null } =
   return note;
 }
 
-function openEditorModal({ title, label, value, saveText, onSave, onDelete = null, deleteConfirmText = "" }) {
+function openEditorModal({
+  title,
+  label,
+  value,
+  saveText,
+  onSave,
+  onDelete = null,
+  deleteConfirmText = "",
+  status = null,
+}) {
   modalTitle.textContent = title;
   modalLabel.textContent = label;
   modalInput.value = value;
   modalSave.textContent = saveText;
   modalError.classList.add("hidden");
 
-  modalHandlers = { onSave, onDelete, deleteConfirmText };
+  const includeStatus = Boolean(status);
+  modalStatusWrap.classList.toggle("hidden", !includeStatus);
+  modalStatus.value = includeStatus ? normalizeStatus(status) : "to_analyze";
+  modalHandlers = { onSave, onDelete, deleteConfirmText, includeStatus };
   modalDelete.classList.toggle("hidden", !onDelete);
   modal.classList.remove("hidden");
 
@@ -291,7 +415,7 @@ function openEditorModal({ title, label, value, saveText, onSave, onDelete = nul
 
 function closeEditorModal() {
   modal.classList.add("hidden");
-  modalHandlers = { onSave: null, onDelete: null, deleteConfirmText: "" };
+  modalHandlers = { onSave: null, onDelete: null, deleteConfirmText: "", includeStatus: false };
 }
 
 function handleModalSave() {
@@ -303,7 +427,8 @@ function handleModalSave() {
   }
 
   if (modalHandlers.onSave) {
-    modalHandlers.onSave(value);
+    const status = modalHandlers.includeStatus ? normalizeStatus(modalStatus.value) : null;
+    modalHandlers.onSave(value, status);
   }
   closeEditorModal();
 }
@@ -462,10 +587,12 @@ function render() {
                 label: `Detail text for "${step.title}"`,
                 value: "",
                 saveText: "Add",
-                onSave: (detailText) => {
-                  step.details.push({ id: crypto.randomUUID(), text: detailText });
+                onSave: (detailText, detailStatus) => {
+                  const status = normalizeStatus(detailStatus);
+                  step.details.push({ id: crypto.randomUUID(), text: detailText, status });
                   persistAndRender();
                 },
+                status: "to_analyze",
               });
             },
           },
@@ -500,17 +627,23 @@ function render() {
         detailColumn.appendChild(empty);
       }
 
+      const selectedStatuses = new Set(uiState.detailFilter);
       step.details.forEach((detail) => {
+        const normalizedStatus = normalizeStatus(detail.status);
+        const isMuted = !selectedStatuses.has(normalizedStatus);
         detailColumn.appendChild(
           makeNote(detail.text, "detail", {
+            detailStatus: normalizedStatus,
+            muted: isMuted,
             onOpen: () => {
               openEditorModal({
                 title: "Edit Detail",
                 label: "Detail text",
                 value: detail.text,
                 saveText: "Save",
-                onSave: (nextText) => {
+                onSave: (nextText, nextStatus) => {
                   detail.text = nextText;
+                  detail.status = normalizeStatus(nextStatus);
                   persistAndRender();
                 },
                 onDelete: () => {
@@ -518,6 +651,7 @@ function render() {
                   persistAndRender();
                 },
                 deleteConfirmText: `Delete detail "${detail.text}"?`,
+                status: normalizedStatus,
               });
             },
             drag: {
@@ -593,3 +727,5 @@ function render() {
 
 render();
 applyLegendState();
+applyFilterState();
+applyStatusMaskState();

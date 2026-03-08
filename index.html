@@ -11,7 +11,28 @@
       <header class="page-header">
         <h1>User Story Map Builder</h1>
         <div class="header-actions">
-          <button id="toggle-legend" class="btn">Fold left panel</button>
+          <div class="inline-filter">
+            <span>Status</span>
+            <div id="status-filter" class="status-filter-group">
+              <button type="button" class="status-filter-btn all" data-status="all">All</button>
+              <button type="button" class="status-filter-btn" data-status="to_analyze">To analyze</button>
+              <button type="button" class="status-filter-btn" data-status="to_estimate">To estimate</button>
+              <button type="button" class="status-filter-btn" data-status="ready">Ready</button>
+              <button type="button" class="status-filter-btn" data-status="in_progress">In progress</button>
+              <button type="button" class="status-filter-btn" data-status="done">Done</button>
+              <button type="button" class="status-filter-btn" data-status="cancelled">Cancelled</button>
+            </div>
+          </div>
+          <details class="settings-menu">
+            <summary class="btn">Settings</summary>
+            <div class="settings-panel">
+              <button id="toggle-legend" class="btn settings-control">Fold left panel</button>
+              <label class="status-visibility-toggle" for="toggle-status-mask">
+                <input id="toggle-status-mask" type="checkbox" />
+                <span>Mask status</span>
+              </label>
+            </div>
+          </details>
           <button id="add-activity" class="btn primary">+ Activity</button>
         </div>
       </header>
@@ -56,6 +77,17 @@
         <h2 id="modal-title" class="modal-title">Edit</h2>
         <label class="modal-label" for="modal-input">Title</label>
         <input id="modal-input" class="modal-input" type="text" />
+        <div id="modal-status-wrap" class="modal-status hidden">
+          <label class="modal-label" for="modal-status">Status</label>
+          <select id="modal-status" class="modal-select">
+            <option value="to_analyze">To analyze</option>
+            <option value="to_estimate">To estimate</option>
+            <option value="ready">Ready</option>
+            <option value="in_progress">In progress</option>
+            <option value="done">Done</option>
+            <option value="cancelled">Cancelled</option>
+          </select>
+        </div>
         <p id="modal-error" class="modal-error hidden">Please enter a value.</p>
         <div class="modal-actions">
           <button id="modal-cancel" class="btn">Cancel</button>
