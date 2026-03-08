@@ -100,6 +100,9 @@ const toggleStatusMaskBtn = document.getElementById("toggle-status-mask");
 const settingsMenu = document.querySelector(".settings-menu");
 const exportCsvBtn = document.getElementById("export-csv");
 const exportMdBtn = document.getElementById("export-md");
+const exportBackupBtn = document.getElementById("export-backup");
+const importBackupBtn = document.getElementById("import-backup");
+const importBackupFileInput = document.getElementById("import-backup-file");
 const mapShell = document.querySelector(".map-shell");
 const modal = document.getElementById("editor-modal");
 const modalTitle = document.getElementById("modal-title");
@@ -177,6 +180,35 @@ exportCsvBtn.addEventListener("click", () => {
 
 exportMdBtn.addEventListener("click", () => {
   downloadTextFile("story-map.md", buildMarkdownExport());
+});
+
+exportBackupBtn.addEventListener("click", () => {
+  const payload = buildBackupExport();
+  downloadTextFile("story-map-backup.json", JSON.stringify(payload, null, 2));
+});
+
+importBackupBtn.addEventListener("click", () => {
+  importBackupFileInput.click();
+});
+
+importBackupFileInput.addEventListener("change", async () => {
+  const file = importBackupFileInput.files?.[0];
+  if (!file) return;
+
+  try {
+    const text = await file.text();
+    const parsed = JSON.parse(text);
+    const importedActivities = normalizeImportedActivities(parsed);
+
+    if (!confirm("Import will replace the current story map. Continue?")) return;
+    activities = importedActivities;
+    persistAndRender();
+    alert("Backup imported.");
+  } catch (error) {
+    alert(`Import failed: ${error.message || "Invalid backup file."}`);
+  } finally {
+    importBackupFileInput.value = "";
+  }
 });
 
 function loadState() {
@@ -328,6 +360,41 @@ function buildMarkdownExport() {
   });
 
   return lines.join("\n");
+}
+
+function buildBackupExport() {
+  return {
+    format: "user-story-map-backup-v1",
+    exportedAt: new Date().toISOString(),
+    activities: structuredClone(activities),
+  };
+}
+
+function normalizeImportedActivities(parsed) {
+  const incoming = Array.isArray(parsed) ? parsed : parsed?.activities;
+  if (!Array.isArray(incoming)) {
+    throw new Error("Backup must contain an activities array.");
+  }
+
+  const normalized = incoming.map((activity) => ({
+    id: activity?.id || crypto.randomUUID(),
+    title: String(activity?.title || "Untitled activity"),
+    steps: Array.isArray(activity?.steps)
+      ? activity.steps.map((step) => ({
+          id: step?.id || crypto.randomUUID(),
+          title: String(step?.title || "Untitled step"),
+          details: Array.isArray(step?.details)
+            ? step.details.map((detail) => ({
+                id: detail?.id || crypto.randomUUID(),
+                text: String(detail?.text || ""),
+                status: normalizeStatus(detail?.status),
+              }))
+            : [],
+        }))
+      : [],
+  }));
+
+  return normalizeData(normalized);
 }
 
 function normalizeData(data) {
