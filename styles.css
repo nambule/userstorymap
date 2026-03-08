@@ -71,19 +71,6 @@ body {
   color: #fff;
 }
 
-.status-visibility-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 0.78rem;
-  color: #445169;
-  user-select: none;
-}
-
-.status-visibility-toggle input {
-  margin: 0;
-}
-
 .settings-menu {
   position: relative;
 }
@@ -114,6 +101,14 @@ body {
 
 .settings-control {
   width: 100%;
+}
+
+.settings-export {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 4px;
+  border-top: 1px solid #e0e6f0;
 }
 
 h1 {
@@ -305,19 +300,19 @@ h1 {
 }
 
 .detail-status-chip.status-to_analyze {
-  background: #64748b;
+  background: #dc2626;
 }
 
 .detail-status-chip.status-to_estimate {
-  background: #7c3aed;
+  background: #f97316;
 }
 
 .detail-status-chip.status-in_progress {
-  background: #2563eb;
+  background: #7c3aed;
 }
 
 .detail-status-chip.status-ready {
-  background: #0f766e;
+  background: #2563eb;
 }
 
 .detail-status-chip.status-done {
@@ -325,7 +320,7 @@ h1 {
 }
 
 .detail-status-chip.status-cancelled {
-  background: #b91c1c;
+  background: #6b7280;
 }
 
 #board.mask-detail-status .detail-status-chip {

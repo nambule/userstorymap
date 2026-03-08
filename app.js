@@ -96,7 +96,10 @@ const addActivityBtn = document.getElementById("add-activity");
 const toggleLegendBtn = document.getElementById("toggle-legend");
 const statusFilter = document.getElementById("status-filter");
 const statusFilterButtons = Array.from(document.querySelectorAll(".status-filter-btn"));
-const toggleStatusMask = document.getElementById("toggle-status-mask");
+const toggleStatusMaskBtn = document.getElementById("toggle-status-mask");
+const settingsMenu = document.querySelector(".settings-menu");
+const exportCsvBtn = document.getElementById("export-csv");
+const exportMdBtn = document.getElementById("export-md");
 const mapShell = document.querySelector(".map-shell");
 const modal = document.getElementById("editor-modal");
 const modalTitle = document.getElementById("modal-title");
@@ -162,10 +165,18 @@ statusFilter.addEventListener("click", (event) => {
   render();
 });
 
-toggleStatusMask.addEventListener("change", () => {
-  uiState.maskDetailStatus = toggleStatusMask.checked;
+toggleStatusMaskBtn.addEventListener("click", () => {
+  uiState.maskDetailStatus = !uiState.maskDetailStatus;
   persistUIState();
   applyStatusMaskState();
+});
+
+exportCsvBtn.addEventListener("click", () => {
+  downloadTextFile("story-map.csv", buildCsvExport());
+});
+
+exportMdBtn.addEventListener("click", () => {
+  downloadTextFile("story-map.md", buildMarkdownExport());
 });
 
 function loadState() {
@@ -217,7 +228,7 @@ function applyFilterState() {
 }
 
 function applyStatusMaskState() {
-  toggleStatusMask.checked = Boolean(uiState.maskDetailStatus);
+  toggleStatusMaskBtn.textContent = uiState.maskDetailStatus ? "Unmask status" : "Mask status";
   board.classList.toggle("mask-detail-status", Boolean(uiState.maskDetailStatus));
 }
 
@@ -228,6 +239,95 @@ function persistUIState() {
 function persistAndRender() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(activities));
   render();
+}
+
+function todayStamp() {
+  const now = new Date();
+  const y = String(now.getFullYear());
+  const m = String(now.getMonth() + 1).padStart(2, "0");
+  const d = String(now.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+function downloadBlob(filename, blob) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `${todayStamp()}-${filename}`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+function downloadTextFile(filename, content) {
+  downloadBlob(filename, new Blob([content], { type: "text/plain;charset=utf-8" }));
+}
+
+function csvEscape(value) {
+  const safe = String(value ?? "");
+  if (safe.includes(",") || safe.includes("\"") || safe.includes("\n")) {
+    return `"${safe.replaceAll("\"", "\"\"")}"`;
+  }
+  return safe;
+}
+
+function buildCsvExport() {
+  const rows = [["activity", "step", "detail", "status"]];
+  activities.forEach((activity) => {
+    if (!activity.steps.length) {
+      rows.push([activity.title, "", "", ""]);
+      return;
+    }
+
+    activity.steps.forEach((step) => {
+      if (!step.details.length) {
+        rows.push([activity.title, step.title, "", ""]);
+        return;
+      }
+
+      step.details.forEach((detail) => {
+        rows.push([
+          activity.title,
+          step.title,
+          detail.text,
+          DETAIL_STATUS_LABELS[normalizeStatus(detail.status)] || "",
+        ]);
+      });
+    });
+  });
+
+  return rows.map((row) => row.map(csvEscape).join(",")).join("\n");
+}
+
+function buildMarkdownExport() {
+  const lines = ["# User Story Map", ""];
+
+  activities.forEach((activity) => {
+    lines.push(`## ${activity.title}`);
+    if (!activity.steps.length) {
+      lines.push("- _No steps_");
+      lines.push("");
+      return;
+    }
+
+    activity.steps.forEach((step) => {
+      lines.push(`### ${step.title}`);
+      if (!step.details.length) {
+        lines.push("- _No details_");
+        lines.push("");
+        return;
+      }
+
+      step.details.forEach((detail) => {
+        const status = DETAIL_STATUS_LABELS[normalizeStatus(detail.status)] || "";
+        lines.push(`- [${status}] ${detail.text}`);
+      });
+      lines.push("");
+    });
+  });
+
+  return lines.join("\n");
 }
 
 function normalizeData(data) {
@@ -454,6 +554,16 @@ modalInput.addEventListener("keydown", (event) => {
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && !modal.classList.contains("hidden")) {
     closeEditorModal();
+  }
+  if (event.key === "Escape" && settingsMenu?.open) {
+    settingsMenu.open = false;
+  }
+});
+
+document.addEventListener("click", (event) => {
+  if (!settingsMenu?.open) return;
+  if (!settingsMenu.contains(event.target)) {
+    settingsMenu.open = false;
   }
 });
 
