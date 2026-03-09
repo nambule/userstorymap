@@ -100,6 +100,7 @@ const toggleStatusMaskBtn = document.getElementById("toggle-status-mask");
 const settingsMenu = document.querySelector(".settings-menu");
 const exportCsvBtn = document.getElementById("export-csv");
 const exportMdBtn = document.getElementById("export-md");
+const exportSvgBtn = document.getElementById("export-svg");
 const exportBackupBtn = document.getElementById("export-backup");
 const importBackupBtn = document.getElementById("import-backup");
 const importBackupFileInput = document.getElementById("import-backup-file");
@@ -180,6 +181,11 @@ exportCsvBtn.addEventListener("click", () => {
 
 exportMdBtn.addEventListener("click", () => {
   downloadTextFile("story-map.md", buildMarkdownExport());
+});
+
+exportSvgBtn.addEventListener("click", () => {
+  const svg = buildSvgExport();
+  downloadBlob("story-map.svg", new Blob([svg], { type: "image/svg+xml;charset=utf-8" }));
 });
 
 exportBackupBtn.addEventListener("click", () => {
@@ -368,6 +374,239 @@ function buildBackupExport() {
     exportedAt: new Date().toISOString(),
     activities: structuredClone(activities),
   };
+}
+
+function xmlEscape(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll("\"", "&quot;")
+    .replaceAll("'", "&apos;");
+}
+
+function wrapTextLines(text, maxCharsPerLine = 22, maxLines = 5) {
+  const words = String(text ?? "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (!words.length) return [""];
+
+  const lines = [];
+  let current = words[0];
+  for (let i = 1; i < words.length; i += 1) {
+    const next = words[i];
+    if ((current + " " + next).length <= maxCharsPerLine) {
+      current += " " + next;
+      continue;
+    }
+    lines.push(current);
+    current = next;
+    if (lines.length >= maxLines - 1) break;
+  }
+
+  if (lines.length < maxLines) lines.push(current);
+  if (lines.length > maxLines) lines.length = maxLines;
+
+  const remainingWords = words.slice(lines.join(" ").split(/\s+/).filter(Boolean).length);
+  if (remainingWords.length && lines.length) {
+    lines[lines.length - 1] = `${lines[lines.length - 1].slice(0, Math.max(0, maxCharsPerLine - 1))}…`;
+  }
+
+  return lines;
+}
+
+function textBlock(lines, x, y, lineHeight, attrs = "") {
+  if (!lines.length) return "";
+  const escaped = lines.map((line) => xmlEscape(line));
+  const tspans = escaped
+    .map(
+      (line, index) =>
+        `<tspan x="${x}" dy="${index === 0 ? 0 : lineHeight}">${line}</tspan>`,
+    )
+    .join("");
+  return `<text x="${x}" y="${y}" ${attrs}>${tspans}</text>`;
+}
+
+function buildSvgExport() {
+  const colors = {
+    background: "#ffffff",
+    text: "#0f1b36",
+    activity: "#6f8cf4",
+    step: "#8be5b2",
+    detail: "#f4ecab",
+    emptyBg: "#f0f3f8",
+    emptyStroke: "#b2bfd3",
+    chip: {
+      to_analyze: "#dc2626",
+      to_estimate: "#f97316",
+      ready: "#2563eb",
+      in_progress: "#7c3aed",
+      done: "#15803d",
+      cancelled: "#6b7280",
+    },
+  };
+
+  const metrics = {
+    padding: 18,
+    colWidth: 190,
+    gap: 14,
+    cardHeight: 104,
+    detailCardHeight: 104,
+    emptyHeight: 56,
+    radius: 8,
+    cardPaddingX: 10,
+    titleY: 30,
+    titleLineHeight: 17,
+    chipHeight: 16,
+  };
+
+  const row1Y = metrics.padding;
+  const row2Y = row1Y + metrics.cardHeight + metrics.gap;
+  const row3Y = row2Y + metrics.cardHeight + metrics.gap;
+
+  if (!activities.length) {
+    const width = 740;
+    const height = 180;
+    return `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-label="User story map">
+  <rect width="${width}" height="${height}" fill="${colors.background}" />
+  <rect x="${metrics.padding}" y="${metrics.padding}" width="${width - metrics.padding * 2}" height="${height - metrics.padding * 2}" rx="10" ry="10" fill="#f8fafc" stroke="#a2aec4" stroke-dasharray="6 5" />
+  <text x="${width / 2}" y="${height / 2 + 5}" fill="${colors.text}" font-family="Avenir Next, Segoe UI, sans-serif" font-size="15" text-anchor="middle">No activities yet. Use + Activity to start your map.</text>
+</svg>`;
+  }
+
+  const selectedStatuses = new Set(uiState.detailFilter);
+  let totalColumns = 0;
+  let maxDetailStackHeight = metrics.emptyHeight;
+  activities.forEach((activity) => {
+    totalColumns += Math.max(activity.steps.length, 1);
+    if (!activity.steps.length) return;
+    activity.steps.forEach((step) => {
+      const stackHeight = step.details.length
+        ? step.details.length * metrics.detailCardHeight + (step.details.length - 1) * metrics.gap
+        : metrics.emptyHeight;
+      if (stackHeight > maxDetailStackHeight) maxDetailStackHeight = stackHeight;
+    });
+  });
+
+  const width = metrics.padding * 2 + totalColumns * metrics.colWidth + (totalColumns - 1) * metrics.gap;
+  const height = row3Y + maxDetailStackHeight + metrics.padding;
+  const svg = [];
+  svg.push(`<?xml version="1.0" encoding="UTF-8"?>`);
+  svg.push(
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-label="User story map">`,
+  );
+  svg.push(`<rect width="${width}" height="${height}" fill="${colors.background}" />`);
+
+  let column = 0;
+  activities.forEach((activity) => {
+    const span = Math.max(activity.steps.length, 1);
+    const activityX = metrics.padding + column * (metrics.colWidth + metrics.gap);
+    const activityW = span * metrics.colWidth + (span - 1) * metrics.gap;
+
+    svg.push(
+      `<rect x="${activityX}" y="${row1Y}" width="${activityW}" height="${metrics.cardHeight}" rx="${metrics.radius}" ry="${metrics.radius}" fill="${colors.activity}" />`,
+    );
+    svg.push(
+      textBlock(
+        wrapTextLines(activity.title, Math.max(14, Math.floor((activityW - 20) / 8)), 5),
+        activityX + metrics.cardPaddingX,
+        row1Y + metrics.titleY,
+        metrics.titleLineHeight,
+        `fill="${colors.text}" font-family="Avenir Next, Segoe UI, sans-serif" font-size="14" font-weight="650"`,
+      ),
+    );
+
+    if (!activity.steps.length) {
+      const colX = metrics.padding + column * (metrics.colWidth + metrics.gap);
+      svg.push(
+        `<rect x="${colX}" y="${row2Y}" width="${metrics.colWidth}" height="${metrics.emptyHeight}" rx="${metrics.radius}" ry="${metrics.radius}" fill="${colors.emptyBg}" stroke="${colors.emptyStroke}" stroke-dasharray="4 4" />`,
+      );
+      svg.push(
+        textBlock(
+          wrapTextLines("No steps yet. Add one from the activity card.", 24, 3),
+          colX + 10,
+          row2Y + 24,
+          14,
+          `fill="#3f4b60" font-family="Avenir Next, Segoe UI, sans-serif" font-size="12"`,
+        ),
+      );
+
+      svg.push(
+        `<rect x="${colX}" y="${row3Y}" width="${metrics.colWidth}" height="${metrics.emptyHeight}" rx="${metrics.radius}" ry="${metrics.radius}" fill="${colors.emptyBg}" stroke="${colors.emptyStroke}" stroke-dasharray="4 4" />`,
+      );
+      svg.push(
+        `<text x="${colX + 10}" y="${row3Y + 24}" fill="#3f4b60" font-family="Avenir Next, Segoe UI, sans-serif" font-size="12">No details yet.</text>`,
+      );
+      column += 1;
+      return;
+    }
+
+    activity.steps.forEach((step) => {
+      const colX = metrics.padding + column * (metrics.colWidth + metrics.gap);
+      svg.push(
+        `<rect x="${colX}" y="${row2Y}" width="${metrics.colWidth}" height="${metrics.cardHeight}" rx="${metrics.radius}" ry="${metrics.radius}" fill="${colors.step}" />`,
+      );
+      svg.push(
+        textBlock(
+          wrapTextLines(step.title, 22, 5),
+          colX + metrics.cardPaddingX,
+          row2Y + metrics.titleY,
+          metrics.titleLineHeight,
+          `fill="${colors.text}" font-family="Avenir Next, Segoe UI, sans-serif" font-size="14" font-weight="650"`,
+        ),
+      );
+
+      if (!step.details.length) {
+        svg.push(
+          `<rect x="${colX}" y="${row3Y}" width="${metrics.colWidth}" height="${metrics.emptyHeight}" rx="${metrics.radius}" ry="${metrics.radius}" fill="${colors.emptyBg}" stroke="${colors.emptyStroke}" stroke-dasharray="4 4" />`,
+        );
+        svg.push(
+          `<text x="${colX + 10}" y="${row3Y + 24}" fill="#3f4b60" font-family="Avenir Next, Segoe UI, sans-serif" font-size="12">No details yet.</text>`,
+        );
+        column += 1;
+        return;
+      }
+
+      step.details.forEach((detail, index) => {
+        const status = normalizeStatus(detail.status);
+        const y = row3Y + index * (metrics.detailCardHeight + metrics.gap);
+        const muted = !selectedStatuses.has(status);
+        const opacity = muted ? 0.35 : 1;
+        svg.push(
+          `<rect x="${colX}" y="${y}" width="${metrics.colWidth}" height="${metrics.detailCardHeight}" rx="${metrics.radius}" ry="${metrics.radius}" fill="${colors.detail}" opacity="${opacity}" />`,
+        );
+        svg.push(
+          textBlock(
+            wrapTextLines(detail.text, 22, 4),
+            colX + metrics.cardPaddingX,
+            y + metrics.titleY,
+            metrics.titleLineHeight,
+            `fill="${colors.text}" font-family="Avenir Next, Segoe UI, sans-serif" font-size="14" font-weight="650" opacity="${opacity}"`,
+          ),
+        );
+
+        if (!uiState.maskDetailStatus) {
+          const chipLabel = xmlEscape(DETAIL_STATUS_LABELS[status] || DETAIL_STATUS_LABELS.to_analyze);
+          const chipW = Math.max(52, chipLabel.length * 5.2 + 12);
+          const chipX = colX + metrics.colWidth - chipW - 8;
+          const chipY = y + metrics.detailCardHeight - metrics.chipHeight - 8;
+          const chipColor = colors.chip[status] || colors.chip.to_analyze;
+          svg.push(
+            `<rect x="${chipX}" y="${chipY}" width="${chipW}" height="${metrics.chipHeight}" rx="8" ry="8" fill="${chipColor}" opacity="${opacity}" />`,
+          );
+          svg.push(
+            `<text x="${chipX + chipW / 2}" y="${chipY + 11}" fill="#ffffff" font-family="Avenir Next, Segoe UI, sans-serif" font-size="9" font-weight="500" text-anchor="middle" opacity="${opacity}">${chipLabel}</text>`,
+          );
+        }
+      });
+      column += 1;
+    });
+  });
+
+  svg.push("</svg>");
+  return svg.filter(Boolean).join("\n");
 }
 
 function normalizeImportedActivities(parsed) {
