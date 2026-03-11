@@ -11,6 +11,21 @@ const DETAIL_STATUS_LABELS = {
 };
 const VALID_FILTERS = ["all", ...DETAIL_STATUS];
 
+function createDetail(text = "", status = "to_analyze") {
+  return {
+    id: crypto.randomUUID(),
+    text,
+    status: normalizeStatus(status),
+  };
+}
+
+function createVersion(details = []) {
+  return {
+    id: crypto.randomUUID(),
+    details,
+  };
+}
+
 const seedData = [
   {
     id: crypto.randomUUID(),
@@ -19,20 +34,16 @@ const seedData = [
       {
         id: crypto.randomUUID(),
         title: "Log in",
-        details: ["Enter username or email", "Enter password", "Press login button"].map((text) => ({
-          id: crypto.randomUUID(),
-          text,
-          status: "to_analyze",
-        })),
+        versions: [
+          createVersion(["Enter username or email", "Enter password", "Press login button"].map((text) => createDetail(text))),
+        ],
       },
       {
         id: crypto.randomUUID(),
         title: "Access accounts",
-        details: ["View account balances", "See pending transactions", "Open new account"].map((text) => ({
-          id: crypto.randomUUID(),
-          text,
-          status: "to_analyze",
-        })),
+        versions: [
+          createVersion(["View account balances", "See pending transactions", "Open new account"].map((text) => createDetail(text))),
+        ],
       },
     ],
   },
@@ -43,47 +54,33 @@ const seedData = [
       {
         id: crypto.randomUUID(),
         title: "Enter mobile deposit details",
-        details: ["Choose account", "Enter deposit amount", "View transaction limits"].map((text) => ({
-          id: crypto.randomUUID(),
-          text,
-          status: "to_analyze",
-        })),
+        versions: [
+          createVersion(["Choose account", "Enter deposit amount", "View transaction limits"].map((text) => createDetail(text))),
+        ],
       },
       {
         id: crypto.randomUUID(),
         title: "Sign check",
-        details: ["Read tips for taking check photos"].map((text) => ({
-          id: crypto.randomUUID(),
-          text,
-          status: "to_analyze",
-        })),
+        versions: [createVersion(["Read tips for taking check photos"].map((text) => createDetail(text)))],
       },
       {
         id: crypto.randomUUID(),
         title: "Photograph check",
-        details: ["Enable camera access", "Turn phone horizontal", "Take photo of front & back"].map((text) => ({
-          id: crypto.randomUUID(),
-          text,
-          status: "to_analyze",
-        })),
+        versions: [
+          createVersion(["Enable camera access", "Turn phone horizontal", "Take photo of front & back"].map((text) => createDetail(text))),
+        ],
       },
       {
         id: crypto.randomUUID(),
         title: "Submit deposit",
-        details: ["Confirm deposit", "Understand amount available", "Cancel deposit"].map((text) => ({
-          id: crypto.randomUUID(),
-          text,
-          status: "to_analyze",
-        })),
+        versions: [
+          createVersion(["Confirm deposit", "Understand amount available", "Cancel deposit"].map((text) => createDetail(text))),
+        ],
       },
       {
         id: crypto.randomUUID(),
         title: "Confirm deposit",
-        details: ["View confirmation message", "Receive email confirmation"].map((text) => ({
-          id: crypto.randomUUID(),
-          text,
-          status: "to_analyze",
-        })),
+        versions: [createVersion(["View confirmation message", "Receive email confirmation"].map((text) => createDetail(text)))],
       },
     ],
   },
@@ -97,6 +94,8 @@ const toggleLegendBtn = document.getElementById("toggle-legend");
 const statusFilter = document.getElementById("status-filter");
 const statusFilterButtons = Array.from(document.querySelectorAll(".status-filter-btn"));
 const toggleStatusMaskBtn = document.getElementById("toggle-status-mask");
+const addVersionBtn = document.getElementById("add-version");
+const deleteLastVersionBtn = document.getElementById("delete-last-version");
 const settingsMenu = document.querySelector(".settings-menu");
 const exportCsvBtn = document.getElementById("export-csv");
 const exportMdBtn = document.getElementById("export-md");
@@ -173,6 +172,26 @@ toggleStatusMaskBtn.addEventListener("click", () => {
   uiState.maskDetailStatus = !uiState.maskDetailStatus;
   persistUIState();
   applyStatusMaskState();
+});
+
+addVersionBtn.addEventListener("click", () => {
+  insertVersionRow(getMaxVersionCount() - 1);
+  settingsMenu.open = false;
+  persistAndRender();
+});
+
+deleteLastVersionBtn.addEventListener("click", () => {
+  const maxVersionCount = getMaxVersionCount();
+  if (maxVersionCount <= 1) return;
+
+  const lastVersionIndex = maxVersionCount - 1;
+  if (!confirm(`Delete ${getVersionLabel(lastVersionIndex)}? Its tickets will move into ${getVersionLabel(lastVersionIndex - 1)}.`)) {
+    return;
+  }
+
+  deleteVersionRow(lastVersionIndex);
+  settingsMenu.open = false;
+  persistAndRender();
 });
 
 exportCsvBtn.addEventListener("click", () => {
@@ -310,27 +329,101 @@ function csvEscape(value) {
   return safe;
 }
 
+function getStepVersions(step) {
+  return Array.isArray(step?.versions) ? step.versions : [];
+}
+
+function getAllSteps() {
+  return activities.flatMap((activity) => activity.steps);
+}
+
+function getMaxVersionCount() {
+  return Math.max(1, ...getAllSteps().map((step) => getStepVersions(step).length));
+}
+
+function getVersionLabel(index) {
+  return `Version ${index + 1}`;
+}
+
+function ensureVersionAt(step, versionIndex) {
+  if (!Array.isArray(step.versions)) step.versions = [];
+  while (step.versions.length <= versionIndex) {
+    step.versions.push(createVersion());
+  }
+  return step.versions[versionIndex];
+}
+
+function pruneEmptyTrailingVersions(step) {
+  if (!Array.isArray(step.versions)) return;
+  while (step.versions.length > 1 && !step.versions[step.versions.length - 1].details.length) {
+    step.versions.pop();
+  }
+}
+
+function insertVersionRow(afterIndex) {
+  getAllSteps().forEach((step) => {
+    const versions = getStepVersions(step);
+    while (versions.length <= afterIndex) versions.push(createVersion());
+    versions.splice(afterIndex + 1, 0, createVersion());
+  });
+}
+
+function deleteVersionRow(versionIndex) {
+  if (getMaxVersionCount() <= 1) return false;
+
+  getAllSteps().forEach((step) => {
+    const versions = getStepVersions(step);
+    if (!versions.length || versionIndex >= versions.length) return;
+
+    if (versionIndex === 0) {
+      const target = versions[1];
+      if (target) {
+        target.details = [...versions[0].details, ...target.details];
+      }
+      versions.splice(0, 1);
+    } else {
+      const target = versions[versionIndex - 1];
+      target.details.push(...versions[versionIndex].details);
+      versions.splice(versionIndex, 1);
+    }
+
+    if (!versions.length) versions.push(createVersion());
+    pruneEmptyTrailingVersions(step);
+  });
+
+  return true;
+}
+
 function buildCsvExport() {
-  const rows = [["activity", "step", "detail", "status"]];
+  const rows = [["activity", "step", "version", "detail", "status"]];
   activities.forEach((activity) => {
     if (!activity.steps.length) {
-      rows.push([activity.title, "", "", ""]);
+      rows.push([activity.title, "", "", "", ""]);
       return;
     }
 
     activity.steps.forEach((step) => {
-      if (!step.details.length) {
-        rows.push([activity.title, step.title, "", ""]);
+      const versions = getStepVersions(step);
+      if (!versions.length) {
+        rows.push([activity.title, step.title, "", "", ""]);
         return;
       }
 
-      step.details.forEach((detail) => {
-        rows.push([
-          activity.title,
-          step.title,
-          detail.text,
-          DETAIL_STATUS_LABELS[normalizeStatus(detail.status)] || "",
-        ]);
+      versions.forEach((version, versionIndex) => {
+        if (!version.details.length) {
+          rows.push([activity.title, step.title, getVersionLabel(versionIndex), "", ""]);
+          return;
+        }
+
+        version.details.forEach((detail) => {
+          rows.push([
+            activity.title,
+            step.title,
+            getVersionLabel(versionIndex),
+            detail.text,
+            DETAIL_STATUS_LABELS[normalizeStatus(detail.status)] || "",
+          ]);
+        });
       });
     });
   });
@@ -351,17 +444,27 @@ function buildMarkdownExport() {
 
     activity.steps.forEach((step) => {
       lines.push(`### ${step.title}`);
-      if (!step.details.length) {
+      const versions = getStepVersions(step);
+      if (!versions.length) {
         lines.push("- _No details_");
         lines.push("");
         return;
       }
 
-      step.details.forEach((detail) => {
-        const status = DETAIL_STATUS_LABELS[normalizeStatus(detail.status)] || "";
-        lines.push(`- [${status}] ${detail.text}`);
+      versions.forEach((version, versionIndex) => {
+        lines.push(`#### ${getVersionLabel(versionIndex)}`);
+        if (!version.details.length) {
+          lines.push("- _No details_");
+          lines.push("");
+          return;
+        }
+
+        version.details.forEach((detail) => {
+          const status = DETAIL_STATUS_LABELS[normalizeStatus(detail.status)] || "";
+          lines.push(`- [${status}] ${detail.text}`);
+        });
+        lines.push("");
       });
-      lines.push("");
     });
   });
 
@@ -370,7 +473,7 @@ function buildMarkdownExport() {
 
 function buildBackupExport() {
   return {
-    format: "user-story-map-backup-v1",
+    format: "user-story-map-backup-v2",
     exportedAt: new Date().toISOString(),
     activities: structuredClone(activities),
   };
@@ -428,6 +531,45 @@ function textBlock(lines, x, y, lineHeight, attrs = "") {
   return `<text x="${x}" y="${y}" ${attrs}>${tspans}</text>`;
 }
 
+function getVersionContentHeight(version, metrics) {
+  if (!version) return 0;
+  if (!version.details.length) return metrics.emptyHeight;
+  return version.details.length * metrics.detailCardHeight + (version.details.length - 1) * metrics.gap;
+}
+
+function getBoardColumns() {
+  const columns = [];
+  activities.forEach((activity) => {
+    if (!activity.steps.length) {
+      columns.push({ activity, step: null });
+      return;
+    }
+
+    activity.steps.forEach((step) => {
+      columns.push({ activity, step });
+    });
+  });
+  return columns;
+}
+
+function getBoardVersionLayout(columns, metrics) {
+  const maxVersionCount = Math.max(
+    1,
+    ...columns.map((column) => (column.step ? getStepVersions(column.step).length : 0)),
+  );
+  const rowHeights = Array.from({ length: maxVersionCount }, (_, versionIndex) => {
+    let maxHeight = 0;
+    columns.forEach((column) => {
+      if (!column.step) return;
+      const version = getStepVersions(column.step)[versionIndex];
+      maxHeight = Math.max(maxHeight, getVersionContentHeight(version, metrics));
+    });
+    return Math.max(maxHeight, versionIndex === 0 ? metrics.emptyHeight : 0);
+  });
+
+  return { maxVersionCount, rowHeights };
+}
+
 function buildSvgExport() {
   const colors = {
     background: "#ffffff",
@@ -437,6 +579,7 @@ function buildSvgExport() {
     detail: "#f4ecab",
     emptyBg: "#f0f3f8",
     emptyStroke: "#b2bfd3",
+    divider: "#202a3a",
     chip: {
       to_analyze: "#dc2626",
       to_estimate: "#f97316",
@@ -454,6 +597,7 @@ function buildSvgExport() {
     cardHeight: 104,
     detailCardHeight: 104,
     emptyHeight: 56,
+    versionDividerGap: 28,
     radius: 8,
     cardPaddingX: 10,
     titleY: 30,
@@ -477,21 +621,13 @@ function buildSvgExport() {
   }
 
   const selectedStatuses = new Set(uiState.detailFilter);
-  let totalColumns = 0;
-  let maxDetailStackHeight = metrics.emptyHeight;
-  activities.forEach((activity) => {
-    totalColumns += Math.max(activity.steps.length, 1);
-    if (!activity.steps.length) return;
-    activity.steps.forEach((step) => {
-      const stackHeight = step.details.length
-        ? step.details.length * metrics.detailCardHeight + (step.details.length - 1) * metrics.gap
-        : metrics.emptyHeight;
-      if (stackHeight > maxDetailStackHeight) maxDetailStackHeight = stackHeight;
-    });
-  });
+  const columns = getBoardColumns();
+  const totalColumns = columns.length;
+  const { maxVersionCount, rowHeights } = getBoardVersionLayout(columns, metrics);
+  const detailAreaHeight = rowHeights.reduce((sum, height) => sum + metrics.versionDividerGap + height, 0);
 
   const width = metrics.padding * 2 + totalColumns * metrics.colWidth + (totalColumns - 1) * metrics.gap;
-  const height = row3Y + maxDetailStackHeight + metrics.padding;
+  const height = row3Y + detailAreaHeight + metrics.padding;
   const svg = [];
   svg.push(`<?xml version="1.0" encoding="UTF-8"?>`);
   svg.push(
@@ -558,20 +694,109 @@ function buildSvgExport() {
         ),
       );
 
-      if (!step.details.length) {
+      const versions = getStepVersions(step);
+      let currentY = row3Y;
+      versions.forEach((version, versionIndex) => {
+        if (!version.details.length) {
+          svg.push(
+            `<rect x="${colX}" y="${currentY}" width="${metrics.colWidth}" height="${metrics.emptyHeight}" rx="${metrics.radius}" ry="${metrics.radius}" fill="${colors.emptyBg}" stroke="${colors.emptyStroke}" stroke-dasharray="4 4" />`,
+          );
+          svg.push(
+            `<text x="${colX + 10}" y="${currentY + 24}" fill="#3f4b60" font-family="Avenir Next, Segoe UI, sans-serif" font-size="12">No details yet.</text>`,
+          );
+          currentY += metrics.emptyHeight;
+        } else {
+          version.details.forEach((detail, index) => {
+            const status = normalizeStatus(detail.status);
+            const y = currentY + index * (metrics.detailCardHeight + metrics.gap);
+            const muted = !selectedStatuses.has(status);
+            const opacity = muted ? 0.35 : 1;
+            svg.push(
+              `<rect x="${colX}" y="${y}" width="${metrics.colWidth}" height="${metrics.detailCardHeight}" rx="${metrics.radius}" ry="${metrics.radius}" fill="${colors.detail}" opacity="${opacity}" />`,
+            );
+            svg.push(
+              textBlock(
+                wrapTextLines(detail.text, 22, 4),
+                colX + metrics.cardPaddingX,
+                y + metrics.titleY,
+                metrics.titleLineHeight,
+                `fill="${colors.text}" font-family="Avenir Next, Segoe UI, sans-serif" font-size="14" font-weight="650" opacity="${opacity}"`,
+              ),
+            );
+
+            if (!uiState.maskDetailStatus) {
+              const chipLabel = xmlEscape(DETAIL_STATUS_LABELS[status] || DETAIL_STATUS_LABELS.to_analyze);
+              const chipW = Math.max(52, chipLabel.length * 5.2 + 12);
+              const chipX = colX + metrics.colWidth - chipW - 8;
+              const chipY = y + metrics.detailCardHeight - metrics.chipHeight - 8;
+              const chipColor = colors.chip[status] || colors.chip.to_analyze;
+              svg.push(
+                `<rect x="${chipX}" y="${chipY}" width="${chipW}" height="${metrics.chipHeight}" rx="8" ry="8" fill="${chipColor}" opacity="${opacity}" />`,
+              );
+              svg.push(
+                `<text x="${chipX + chipW / 2}" y="${chipY + 11}" fill="#ffffff" font-family="Avenir Next, Segoe UI, sans-serif" font-size="9" font-weight="500" text-anchor="middle" opacity="${opacity}">${chipLabel}</text>`,
+              );
+            }
+          });
+          currentY += version.details.length * metrics.detailCardHeight + (version.details.length - 1) * metrics.gap;
+        }
+
+        const dividerY = currentY + 14;
+        const label = getVersionLabel(versionIndex + 1);
+        const labelW = Math.max(64, label.length * 6 + 18);
         svg.push(
-          `<rect x="${colX}" y="${row3Y}" width="${metrics.colWidth}" height="${metrics.emptyHeight}" rx="${metrics.radius}" ry="${metrics.radius}" fill="${colors.emptyBg}" stroke="${colors.emptyStroke}" stroke-dasharray="4 4" />`,
+          `<line x1="${colX}" y1="${dividerY}" x2="${colX + metrics.colWidth}" y2="${dividerY}" stroke="${colors.divider}" stroke-width="3" />`,
         );
         svg.push(
-          `<text x="${colX + 10}" y="${row3Y + 24}" fill="#3f4b60" font-family="Avenir Next, Segoe UI, sans-serif" font-size="12">No details yet.</text>`,
+          `<rect x="${colX + 10}" y="${dividerY - 11}" width="${labelW}" height="22" rx="11" ry="11" fill="${colors.background}" />`,
         );
-        column += 1;
+        svg.push(
+          `<text x="${colX + 19}" y="${dividerY + 4}" fill="${colors.text}" font-family="Avenir Next, Segoe UI, sans-serif" font-size="11" font-weight="650">${xmlEscape(label)}</text>`,
+        );
+        currentY += metrics.versionDividerGap;
+      });
+
+      column += 1;
+    });
+  });
+
+  let currentY = row3Y;
+  rowHeights.forEach((rowHeight, versionIndex) => {
+    const separatorY = currentY + metrics.versionDividerGap / 2;
+    const versionLabel = getVersionLabel(versionIndex);
+    const labelW = Math.max(64, versionLabel.length * 6 + 18);
+    svg.push(
+      `<line x1="${metrics.padding}" y1="${separatorY}" x2="${width - metrics.padding}" y2="${separatorY}" stroke="${colors.divider}" stroke-width="3" />`,
+    );
+    svg.push(
+      `<rect x="${metrics.padding + 10}" y="${separatorY - 11}" width="${labelW}" height="22" rx="11" ry="11" fill="${colors.background}" />`,
+    );
+    svg.push(
+      `<text x="${metrics.padding + 19}" y="${separatorY + 4}" fill="${colors.text}" font-family="Avenir Next, Segoe UI, sans-serif" font-size="11" font-weight="650">${xmlEscape(versionLabel)}</text>`,
+    );
+    const contentY = currentY + metrics.versionDividerGap;
+
+    columns.forEach((columnData, columnIndex) => {
+      if (!columnData.step) return;
+      const version = getStepVersions(columnData.step)[versionIndex];
+      if (!version) return;
+
+      const colX = metrics.padding + columnIndex * (metrics.colWidth + metrics.gap);
+      if (!version.details.length) {
+        if (versionIndex === 0) {
+          svg.push(
+            `<rect x="${colX}" y="${contentY}" width="${metrics.colWidth}" height="${metrics.emptyHeight}" rx="${metrics.radius}" ry="${metrics.radius}" fill="${colors.emptyBg}" stroke="${colors.emptyStroke}" stroke-dasharray="4 4" />`,
+          );
+          svg.push(
+            `<text x="${colX + 10}" y="${contentY + 24}" fill="#3f4b60" font-family="Avenir Next, Segoe UI, sans-serif" font-size="12">No details yet.</text>`,
+          );
+        }
         return;
       }
 
-      step.details.forEach((detail, index) => {
+      version.details.forEach((detail, index) => {
         const status = normalizeStatus(detail.status);
-        const y = row3Y + index * (metrics.detailCardHeight + metrics.gap);
+        const y = contentY + index * (metrics.detailCardHeight + metrics.gap);
         const muted = !selectedStatuses.has(status);
         const opacity = muted ? 0.35 : 1;
         svg.push(
@@ -601,8 +826,8 @@ function buildSvgExport() {
           );
         }
       });
-      column += 1;
     });
+    currentY = contentY + rowHeight;
   });
 
   svg.push("</svg>");
@@ -618,33 +843,43 @@ function normalizeImportedActivities(parsed) {
   const normalized = incoming.map((activity) => ({
     id: activity?.id || crypto.randomUUID(),
     title: String(activity?.title || "Untitled activity"),
-    steps: Array.isArray(activity?.steps)
-      ? activity.steps.map((step) => ({
-          id: step?.id || crypto.randomUUID(),
-          title: String(step?.title || "Untitled step"),
-          details: Array.isArray(step?.details)
-            ? step.details.map((detail) => ({
-                id: detail?.id || crypto.randomUUID(),
-                text: String(detail?.text || ""),
-                status: normalizeStatus(detail?.status),
-              }))
-            : [],
-        }))
-      : [],
+    steps: Array.isArray(activity?.steps) ? activity.steps.map((step) => normalizeStep(step)) : [],
   }));
 
   return normalizeData(normalized);
 }
 
+function normalizeStep(step) {
+  const rawVersions = Array.isArray(step?.versions)
+    ? step.versions
+    : Array.isArray(step?.details)
+      ? [createVersion(step.details)]
+      : [createVersion()];
+
+  return {
+    id: step?.id || crypto.randomUUID(),
+    title: String(step?.title || "Untitled step"),
+    versions: rawVersions.map((version) => normalizeVersion(version)),
+  };
+}
+
+function normalizeVersion(version) {
+  return {
+    id: version?.id || crypto.randomUUID(),
+    details: Array.isArray(version?.details)
+      ? version.details.map((detail) => ({
+          id: detail?.id || crypto.randomUUID(),
+          text: String(detail?.text || ""),
+          status: normalizeStatus(detail?.status),
+        }))
+      : [],
+  };
+}
+
 function normalizeData(data) {
   data.forEach((activity) => {
     if (!Array.isArray(activity.steps)) activity.steps = [];
-    activity.steps.forEach((step) => {
-      if (!Array.isArray(step.details)) step.details = [];
-      step.details.forEach((detail) => {
-        detail.status = normalizeStatus(detail.status);
-      });
-    });
+    activity.steps = activity.steps.map((step) => normalizeStep(step));
   });
   return data;
 }
@@ -674,6 +909,36 @@ function findStep(activityId, stepId) {
   const activity = activities.find((item) => item.id === activityId);
   if (!activity) return null;
   return activity.steps.find((item) => item.id === stepId) || null;
+}
+
+function findVersion(activityId, stepId, versionId) {
+  const step = findStep(activityId, stepId);
+  if (!step) return null;
+  return getStepVersions(step).find((version) => version.id === versionId) || null;
+}
+
+function moveDetailToVersion(incoming, targetVersion, targetDetailId = null, placeAfter = false) {
+  const sourceVersion = findVersion(incoming.activityId, incoming.stepId, incoming.versionId);
+  if (!sourceVersion) return false;
+
+  const fromIndex = sourceVersion.details.findIndex((item) => item.id === incoming.detailId);
+  if (fromIndex < 0) return false;
+
+  const [movedDetail] = sourceVersion.details.splice(fromIndex, 1);
+  let insertIndex = targetVersion.details.length;
+
+  if (targetDetailId) {
+    const targetIndex = targetVersion.details.findIndex((item) => item.id === targetDetailId);
+    if (targetIndex < 0) {
+      sourceVersion.details.splice(fromIndex, 0, movedDetail);
+      return false;
+    }
+    insertIndex = targetIndex + (placeAfter ? 1 : 0);
+    if (sourceVersion.id === targetVersion.id && fromIndex < insertIndex) insertIndex -= 1;
+  }
+
+  targetVersion.details.splice(insertIndex, 0, movedDetail);
+  return true;
 }
 
 function hideDropIndicator() {
@@ -873,6 +1138,71 @@ document.addEventListener("click", (event) => {
   }
 });
 
+function createVersionSeparatorRow(columns, totalColumns, versionIndex) {
+  const separatorRow = document.createElement("div");
+  separatorRow.className = "version-separator-row";
+  separatorRow.style.gridColumn = `1 / span ${totalColumns}`;
+  separatorRow.style.gridTemplateColumns = `repeat(${totalColumns}, var(--col-width))`;
+
+  const label = document.createElement("div");
+  label.className = "version-separator-label";
+  label.textContent = getVersionLabel(versionIndex);
+  separatorRow.appendChild(label);
+
+  columns.forEach((column) => {
+    const cell = document.createElement("div");
+    cell.className = "version-separator-cell";
+    if (!column.step) {
+      separatorRow.appendChild(cell);
+      return;
+    }
+
+    const addBtn = document.createElement("button");
+    addBtn.type = "button";
+    addBtn.className = "version-separator-add";
+    addBtn.textContent = "+ Detail";
+    addBtn.addEventListener("click", () => {
+      openEditorModal({
+        title: "Add Detail",
+        label: `Detail text for "${column.step.title}" in ${getVersionLabel(versionIndex)}`,
+        value: "",
+        saveText: "Add",
+        onSave: (detailText, detailStatus) => {
+          ensureVersionAt(column.step, versionIndex).details.push(createDetail(detailText, detailStatus));
+          persistAndRender();
+        },
+        status: "to_analyze",
+      });
+    });
+    cell.appendChild(addBtn);
+
+    cell.addEventListener("dragover", (event) => {
+      if (!dragState || dragState.type !== "detail") return;
+      event.preventDefault();
+      const rect = cell.getBoundingClientRect();
+      showDropIndicator("y", rect, true);
+    });
+
+    cell.addEventListener("drop", (event) => {
+      if (!dragState || dragState.type !== "detail") return;
+      event.preventDefault();
+      event.stopPropagation();
+      const version = ensureVersionAt(column.step, versionIndex);
+      if (moveDetailToVersion(dragState, version)) {
+        pruneEmptyTrailingVersions(findStep(dragState.activityId, dragState.stepId));
+        pruneEmptyTrailingVersions(column.step);
+        dragState = null;
+        hideDropIndicator();
+        persistAndRender();
+      }
+    });
+
+    separatorRow.appendChild(cell);
+  });
+
+  return separatorRow;
+}
+
 function render() {
   board.innerHTML = "";
 
@@ -887,8 +1217,16 @@ function render() {
   const grid = document.createElement("div");
   grid.className = "story-grid";
 
-  const totalColumns = activities.reduce((sum, activity) => sum + Math.max(activity.steps.length, 1), 0);
+  const columns = getBoardColumns();
+  const totalColumns = columns.length;
+  const layoutMetrics = { detailCardHeight: 104, gap: 10, emptyHeight: 56 };
+  const { maxVersionCount, rowHeights } = getBoardVersionLayout(columns, layoutMetrics);
   grid.style.gridTemplateColumns = `repeat(${totalColumns}, var(--col-width))`;
+  grid.style.gridTemplateRows = [
+    "auto",
+    "auto",
+    ...rowHeights.flatMap((height) => ["var(--version-separator-height)", `${height}px`]),
+  ].join(" ");
 
   let col = 1;
   activities.forEach((activity) => {
@@ -927,7 +1265,7 @@ function render() {
               value: "",
               saveText: "Add",
               onSave: (stepTitle) => {
-                activity.steps.push({ id: crypto.randomUUID(), title: stepTitle, details: [] });
+                activity.steps.push({ id: crypto.randomUUID(), title: stepTitle, versions: [createVersion()] });
                 persistAndRender();
               },
             });
@@ -956,16 +1294,6 @@ function render() {
       emptyStep.style.gridRow = "2";
       grid.appendChild(emptyStep);
 
-      const emptyDetailCol = document.createElement("div");
-      emptyDetailCol.className = "detail-column";
-      emptyDetailCol.style.gridColumn = `${col}`;
-      emptyDetailCol.style.gridRow = "3";
-
-      const emptyDetail = document.createElement("div");
-      emptyDetail.className = "empty-note";
-      emptyDetail.textContent = "No details yet.";
-      emptyDetailCol.appendChild(emptyDetail);
-      grid.appendChild(emptyDetailCol);
       col += 1;
       return;
     }
@@ -1000,19 +1328,18 @@ function render() {
             onClick: () => {
               openEditorModal({
                 title: "Add Detail",
-                label: `Detail text for "${step.title}"`,
+                label: `Detail text for "${step.title}" in ${getVersionLabel(0)}`,
                 value: "",
                 saveText: "Add",
                 onSave: (detailText, detailStatus) => {
-                  const status = normalizeStatus(detailStatus);
-                  step.details.push({ id: crypto.randomUUID(), text: detailText, status });
+                  ensureVersionAt(step, 0).details.push(createDetail(detailText, detailStatus));
                   persistAndRender();
                 },
                 status: "to_analyze",
               });
             },
           },
-        drag: {
+          drag: {
             axis: "x",
             getData: () => ({ type: "step", activityId: activity.id, stepId: step.id }),
             accepts: (incoming) =>
@@ -1031,112 +1358,111 @@ function render() {
       );
       grid.appendChild(stepBox);
 
-      const detailColumn = document.createElement("div");
-      detailColumn.className = "detail-column";
-      detailColumn.style.gridColumn = `${col}`;
-      detailColumn.style.gridRow = "3";
-
-      if (!step.details.length) {
-        const empty = document.createElement("div");
-        empty.className = "empty-note";
-        empty.textContent = "No details yet.";
-        detailColumn.appendChild(empty);
-      }
-
-      const selectedStatuses = new Set(uiState.detailFilter);
-      step.details.forEach((detail) => {
-        const normalizedStatus = normalizeStatus(detail.status);
-        const isMuted = !selectedStatuses.has(normalizedStatus);
-        detailColumn.appendChild(
-          makeNote(detail.text, "detail", {
-            detailStatus: normalizedStatus,
-            muted: isMuted,
-            onOpen: () => {
-              openEditorModal({
-                title: "Edit Detail",
-                label: "Detail text",
-                value: detail.text,
-                saveText: "Save",
-                onSave: (nextText, nextStatus) => {
-                  detail.text = nextText;
-                  detail.status = normalizeStatus(nextStatus);
-                  persistAndRender();
-                },
-                onDelete: () => {
-                  removeAt(step.details, detail.id);
-                  persistAndRender();
-                },
-                deleteConfirmText: `Delete detail "${detail.text}"?`,
-                status: normalizedStatus,
-              });
-            },
-            drag: {
-              axis: "y",
-              getData: () => ({
-                type: "detail",
-                activityId: activity.id,
-                stepId: step.id,
-                detailId: detail.id,
-              }),
-              accepts: (incoming) =>
-                incoming.type === "detail" &&
-                incoming.detailId !== detail.id,
-              onDrop: (incoming, event, rect) => {
-                const sourceStep = findStep(incoming.activityId, incoming.stepId);
-                if (!sourceStep) return;
-                const fromIndex = sourceStep.details.findIndex((item) => item.id === incoming.detailId);
-                const targetIndex = step.details.findIndex((item) => item.id === detail.id);
-                if (fromIndex < 0 || targetIndex < 0) return;
-                const placeAfter = event.clientY > rect.top + rect.height / 2;
-                if (sourceStep.id === step.id) {
-                  repositionInArray(step.details, fromIndex, targetIndex, placeAfter);
-                  persistAndRender();
-                  return;
-                }
-
-                const [movedDetail] = sourceStep.details.splice(fromIndex, 1);
-                const insertIndex = targetIndex + (placeAfter ? 1 : 0);
-                step.details.splice(insertIndex, 0, movedDetail);
-                persistAndRender();
-              },
-            },
-          }),
-        );
-      });
-
-      detailColumn.addEventListener("dragover", (event) => {
-        if (!dragState || dragState.type !== "detail") return;
-        if (event.target !== detailColumn) return;
-        event.preventDefault();
-        const rect = detailColumn.getBoundingClientRect();
-        showDropIndicator("y", rect, true);
-      });
-
-      detailColumn.addEventListener("drop", (event) => {
-        if (!dragState || dragState.type !== "detail") return;
-        if (event.target !== detailColumn) return;
-        event.preventDefault();
-        const sourceStep = findStep(dragState.activityId, dragState.stepId);
-        if (!sourceStep) return;
-        const fromIndex = sourceStep.details.findIndex((item) => item.id === dragState.detailId);
-        if (fromIndex < 0) return;
-
-        if (sourceStep.id === step.id) {
-          const [movedDetail] = sourceStep.details.splice(fromIndex, 1);
-          sourceStep.details.push(movedDetail);
-        } else {
-          const [movedDetail] = sourceStep.details.splice(fromIndex, 1);
-          step.details.push(movedDetail);
-        }
-        dragState = null;
-        hideDropIndicator();
-        persistAndRender();
-      });
-
-      grid.appendChild(detailColumn);
       col += 1;
     });
   });
+
+  columns.forEach((column, columnIndex) => {
+    if (!column.step) return;
+    const versions = getStepVersions(column.step);
+    const selectedStatuses = new Set(uiState.detailFilter);
+
+    rowHeights.forEach((rowHeight, versionIndex) => {
+      const detailCell = document.createElement("div");
+      detailCell.className = "detail-column";
+      detailCell.style.gridColumn = `${columnIndex + 1}`;
+      detailCell.style.gridRow = `${4 + versionIndex * 2}`;
+
+      const version = versions[versionIndex];
+      if (!version || !version.details.length) {
+        if (versionIndex === 0) {
+          const empty = document.createElement("div");
+          empty.className = "empty-note";
+          empty.textContent = "No details yet.";
+          detailCell.appendChild(empty);
+        }
+      } else {
+        version.details.forEach((detail) => {
+          const normalizedStatus = normalizeStatus(detail.status);
+          const isMuted = !selectedStatuses.has(normalizedStatus);
+          detailCell.appendChild(
+            makeNote(detail.text, "detail", {
+              detailStatus: normalizedStatus,
+              muted: isMuted,
+              onOpen: () => {
+                openEditorModal({
+                  title: "Edit Detail",
+                  label: "Detail text",
+                  value: detail.text,
+                  saveText: "Save",
+                  onSave: (nextText, nextStatus) => {
+                    detail.text = nextText;
+                    detail.status = normalizeStatus(nextStatus);
+                    persistAndRender();
+                  },
+                  onDelete: () => {
+                    removeAt(version.details, detail.id);
+                    pruneEmptyTrailingVersions(column.step);
+                    persistAndRender();
+                  },
+                  deleteConfirmText: `Delete detail "${detail.text}"?`,
+                  status: normalizedStatus,
+                });
+              },
+              drag: {
+                axis: "y",
+                getData: () => ({
+                  type: "detail",
+                  activityId: column.activity.id,
+                  stepId: column.step.id,
+                  versionId: version.id,
+                  detailId: detail.id,
+                }),
+                accepts: (incoming) => incoming.type === "detail" && incoming.detailId !== detail.id,
+                onDrop: (incoming, event, rect) => {
+                  const placeAfter = event.clientY > rect.top + rect.height / 2;
+                  if (moveDetailToVersion(incoming, version, detail.id, placeAfter)) {
+                    pruneEmptyTrailingVersions(findStep(incoming.activityId, incoming.stepId));
+                    pruneEmptyTrailingVersions(column.step);
+                    persistAndRender();
+                  }
+                },
+              },
+            }),
+          );
+        });
+      }
+
+      detailCell.addEventListener("dragover", (event) => {
+        if (!dragState || dragState.type !== "detail") return;
+        event.preventDefault();
+        const rect = detailCell.getBoundingClientRect();
+        showDropIndicator("y", rect, true);
+      });
+
+      detailCell.addEventListener("drop", (event) => {
+        if (!dragState || dragState.type !== "detail") return;
+        event.preventDefault();
+        event.stopPropagation();
+        const targetVersion = ensureVersionAt(column.step, versionIndex);
+        if (moveDetailToVersion(dragState, targetVersion)) {
+          pruneEmptyTrailingVersions(findStep(dragState.activityId, dragState.stepId));
+          pruneEmptyTrailingVersions(column.step);
+          dragState = null;
+          hideDropIndicator();
+          persistAndRender();
+        }
+      });
+
+      grid.appendChild(detailCell);
+    });
+  });
+
+  for (let versionIndex = 0; versionIndex < maxVersionCount; versionIndex += 1) {
+    const separatorRow = createVersionSeparatorRow(columns, totalColumns, versionIndex);
+    separatorRow.style.gridRow = `${3 + versionIndex * 2}`;
+    grid.appendChild(separatorRow);
+  }
 
   board.appendChild(grid);
 }
