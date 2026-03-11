@@ -624,7 +624,10 @@ function buildSvgExport() {
   const columns = getBoardColumns();
   const totalColumns = columns.length;
   const { maxVersionCount, rowHeights } = getBoardVersionLayout(columns, metrics);
-  const detailAreaHeight = rowHeights.reduce((sum, height) => sum + metrics.versionDividerGap + height, 0);
+  const detailAreaHeight = rowHeights.reduce(
+    (sum, height, versionIndex) => sum + height + (versionIndex === 0 ? 0 : metrics.versionDividerGap),
+    0,
+  );
 
   const width = metrics.padding * 2 + totalColumns * metrics.colWidth + (totalColumns - 1) * metrics.gap;
   const height = row3Y + detailAreaHeight + metrics.padding;
@@ -694,87 +697,29 @@ function buildSvgExport() {
         ),
       );
 
-      const versions = getStepVersions(step);
-      let currentY = row3Y;
-      versions.forEach((version, versionIndex) => {
-        if (!version.details.length) {
-          svg.push(
-            `<rect x="${colX}" y="${currentY}" width="${metrics.colWidth}" height="${metrics.emptyHeight}" rx="${metrics.radius}" ry="${metrics.radius}" fill="${colors.emptyBg}" stroke="${colors.emptyStroke}" stroke-dasharray="4 4" />`,
-          );
-          svg.push(
-            `<text x="${colX + 10}" y="${currentY + 24}" fill="#3f4b60" font-family="Avenir Next, Segoe UI, sans-serif" font-size="12">No details yet.</text>`,
-          );
-          currentY += metrics.emptyHeight;
-        } else {
-          version.details.forEach((detail, index) => {
-            const status = normalizeStatus(detail.status);
-            const y = currentY + index * (metrics.detailCardHeight + metrics.gap);
-            const muted = !selectedStatuses.has(status);
-            const opacity = muted ? 0.35 : 1;
-            svg.push(
-              `<rect x="${colX}" y="${y}" width="${metrics.colWidth}" height="${metrics.detailCardHeight}" rx="${metrics.radius}" ry="${metrics.radius}" fill="${colors.detail}" opacity="${opacity}" />`,
-            );
-            svg.push(
-              textBlock(
-                wrapTextLines(detail.text, 22, 4),
-                colX + metrics.cardPaddingX,
-                y + metrics.titleY,
-                metrics.titleLineHeight,
-                `fill="${colors.text}" font-family="Avenir Next, Segoe UI, sans-serif" font-size="14" font-weight="650" opacity="${opacity}"`,
-              ),
-            );
-
-            if (!uiState.maskDetailStatus) {
-              const chipLabel = xmlEscape(DETAIL_STATUS_LABELS[status] || DETAIL_STATUS_LABELS.to_analyze);
-              const chipW = Math.max(52, chipLabel.length * 5.2 + 12);
-              const chipX = colX + metrics.colWidth - chipW - 8;
-              const chipY = y + metrics.detailCardHeight - metrics.chipHeight - 8;
-              const chipColor = colors.chip[status] || colors.chip.to_analyze;
-              svg.push(
-                `<rect x="${chipX}" y="${chipY}" width="${chipW}" height="${metrics.chipHeight}" rx="8" ry="8" fill="${chipColor}" opacity="${opacity}" />`,
-              );
-              svg.push(
-                `<text x="${chipX + chipW / 2}" y="${chipY + 11}" fill="#ffffff" font-family="Avenir Next, Segoe UI, sans-serif" font-size="9" font-weight="500" text-anchor="middle" opacity="${opacity}">${chipLabel}</text>`,
-              );
-            }
-          });
-          currentY += version.details.length * metrics.detailCardHeight + (version.details.length - 1) * metrics.gap;
-        }
-
-        const dividerY = currentY + 14;
-        const label = getVersionLabel(versionIndex + 1);
-        const labelW = Math.max(64, label.length * 6 + 18);
-        svg.push(
-          `<line x1="${colX}" y1="${dividerY}" x2="${colX + metrics.colWidth}" y2="${dividerY}" stroke="${colors.divider}" stroke-width="3" />`,
-        );
-        svg.push(
-          `<rect x="${colX + 10}" y="${dividerY - 11}" width="${labelW}" height="22" rx="11" ry="11" fill="${colors.background}" />`,
-        );
-        svg.push(
-          `<text x="${colX + 19}" y="${dividerY + 4}" fill="${colors.text}" font-family="Avenir Next, Segoe UI, sans-serif" font-size="11" font-weight="650">${xmlEscape(label)}</text>`,
-        );
-        currentY += metrics.versionDividerGap;
-      });
-
       column += 1;
     });
   });
 
   let currentY = row3Y;
   rowHeights.forEach((rowHeight, versionIndex) => {
-    const separatorY = currentY + metrics.versionDividerGap / 2;
-    const versionLabel = getVersionLabel(versionIndex);
-    const labelW = Math.max(64, versionLabel.length * 6 + 18);
-    svg.push(
-      `<line x1="${metrics.padding}" y1="${separatorY}" x2="${width - metrics.padding}" y2="${separatorY}" stroke="${colors.divider}" stroke-width="3" />`,
-    );
-    svg.push(
-      `<rect x="${metrics.padding + 10}" y="${separatorY - 11}" width="${labelW}" height="22" rx="11" ry="11" fill="${colors.background}" />`,
-    );
-    svg.push(
-      `<text x="${metrics.padding + 19}" y="${separatorY + 4}" fill="${colors.text}" font-family="Avenir Next, Segoe UI, sans-serif" font-size="11" font-weight="650">${xmlEscape(versionLabel)}</text>`,
-    );
-    const contentY = currentY + metrics.versionDividerGap;
+    if (versionIndex > 0) {
+      const separatorY = currentY + metrics.versionDividerGap / 2;
+      const versionLabel = getVersionLabel(versionIndex);
+      const labelW = Math.max(64, versionLabel.length * 6 + 18);
+      svg.push(
+        `<line x1="${metrics.padding}" y1="${separatorY}" x2="${width - metrics.padding}" y2="${separatorY}" stroke="${colors.divider}" stroke-width="3" />`,
+      );
+      svg.push(
+        `<rect x="${metrics.padding + 10}" y="${separatorY - 11}" width="${labelW}" height="22" rx="11" ry="11" fill="${colors.background}" />`,
+      );
+      svg.push(
+        `<text x="${metrics.padding + 19}" y="${separatorY + 4}" fill="${colors.text}" font-family="Avenir Next, Segoe UI, sans-serif" font-size="11" font-weight="650">${xmlEscape(versionLabel)}</text>`,
+      );
+      currentY += metrics.versionDividerGap;
+    }
+
+    const contentY = currentY;
 
     columns.forEach((columnData, columnIndex) => {
       if (!columnData.step) return;
@@ -1225,7 +1170,8 @@ function render() {
   grid.style.gridTemplateRows = [
     "auto",
     "auto",
-    ...rowHeights.flatMap((height) => ["var(--version-separator-height)", `${height}px`]),
+    `${rowHeights[0]}px`,
+    ...rowHeights.slice(1).flatMap((height) => ["var(--version-separator-height)", `${height}px`]),
   ].join(" ");
 
   let col = 1;
@@ -1371,7 +1317,7 @@ function render() {
       const detailCell = document.createElement("div");
       detailCell.className = "detail-column";
       detailCell.style.gridColumn = `${columnIndex + 1}`;
-      detailCell.style.gridRow = `${4 + versionIndex * 2}`;
+      detailCell.style.gridRow = `${versionIndex === 0 ? 3 : 3 + versionIndex * 2}`;
 
       const version = versions[versionIndex];
       if (!version || !version.details.length) {
@@ -1458,9 +1404,9 @@ function render() {
     });
   });
 
-  for (let versionIndex = 0; versionIndex < maxVersionCount; versionIndex += 1) {
+  for (let versionIndex = 1; versionIndex < maxVersionCount; versionIndex += 1) {
     const separatorRow = createVersionSeparatorRow(columns, totalColumns, versionIndex);
-    separatorRow.style.gridRow = `${3 + versionIndex * 2}`;
+    separatorRow.style.gridRow = `${2 + versionIndex * 2}`;
     grid.appendChild(separatorRow);
   }
 
