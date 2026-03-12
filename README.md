@@ -5,6 +5,8 @@ A lightweight, browser-based app to create and manage a user story map with thre
 - Steps
 - Details (with status)
 
+Test here : https://nambule.github.io/userstorymap/
+
 ## Features
 - Add, edit, and delete activities, steps, and details
 - Assign status to detail cards:
