@@ -579,10 +579,62 @@ function textBlock(lines, x, y, lineHeight, attrs = "") {
   return `<text x="${x}" y="${y}" ${attrs}>${tspans}</text>`;
 }
 
+let detailMeasureHost = null;
+const detailHeightCache = new Map();
+
+function ensureDetailMeasureHost() {
+  if (detailMeasureHost?.isConnected) return detailMeasureHost;
+  detailMeasureHost = document.createElement("div");
+  detailMeasureHost.setAttribute("aria-hidden", "true");
+  detailMeasureHost.style.position = "absolute";
+  detailMeasureHost.style.left = "-10000px";
+  detailMeasureHost.style.top = "0";
+  detailMeasureHost.style.visibility = "hidden";
+  detailMeasureHost.style.pointerEvents = "none";
+  document.body.appendChild(detailMeasureHost);
+  return detailMeasureHost;
+}
+
+function getBoardColumnWidth() {
+  const widthValue = getComputedStyle(document.documentElement).getPropertyValue("--col-width").trim();
+  const parsed = Number.parseFloat(widthValue);
+  return Number.isFinite(parsed) ? parsed : 214;
+}
+
+function measureDetailCardHeight(detail) {
+  const status = normalizeStatus(detail?.status);
+  const width = getBoardColumnWidth();
+  const chipVisible = !uiState.maskDetailStatus;
+  const cacheKey = `${width}|${chipVisible ? 1 : 0}|${status}|${detail?.text ?? ""}`;
+  if (detailHeightCache.has(cacheKey)) return detailHeightCache.get(cacheKey);
+
+  const host = ensureDetailMeasureHost();
+  host.style.width = `${width}px`;
+  const note = makeNote(String(detail?.text || ""), "detail", {
+    detailStatus: chipVisible ? status : null,
+  });
+  host.replaceChildren(note);
+  const height = Math.ceil(note.getBoundingClientRect().height);
+  detailHeightCache.set(cacheKey, height);
+  return height;
+}
+
+function estimateSvgDetailCardHeight(detail, metrics) {
+  const lineCount = wrapTextLines(detail.text, 22, 4).length;
+  const textHeight = lineCount * metrics.titleLineHeight;
+  const chipSpace = uiState.maskDetailStatus ? 0 : metrics.chipHeight + 8;
+  const contentHeight = 16 + textHeight + chipSpace + 14;
+  return Math.max(metrics.detailCardMinHeight, contentHeight);
+}
+
 function getVersionContentHeight(version, metrics) {
   if (!version) return 0;
   if (!version.details.length) return metrics.emptyHeight;
-  return version.details.length * metrics.detailCardHeight + (version.details.length - 1) * metrics.gap;
+  const getDetailHeight = metrics.getDetailHeight || (() => metrics.detailCardHeight);
+  return version.details.reduce((sum, detail, index) => {
+    const gap = index === 0 ? 0 : metrics.gap;
+    return sum + gap + getDetailHeight(detail);
+  }, 0);
 }
 
 function getBoardColumns() {
@@ -629,12 +681,12 @@ function buildSvgExport() {
     emptyStroke: "#c1c7d0",
     divider: "#85b8ff",
     chip: {
-      to_analyze: "#c9372c",
-      to_estimate: "#f79009",
-      ready: "#0c66e4",
-      in_progress: "#6554c0",
-      done: "#1f845a",
-      cancelled: "#758195",
+      to_analyze: { bg: "#ffeceb", border: "#f5c0ba", text: "#ae2e24", icon: "#c9372c" },
+      to_estimate: { bg: "#fff3c4", border: "#f5cd47", text: "#7f5f01", icon: "#e2b203" },
+      ready: { bg: "#deebff", border: "#85b8ff", text: "#0055cc", icon: "#0c66e4" },
+      in_progress: { bg: "#eae6ff", border: "#b8acf6", text: "#5e4db2", icon: "#6554c0" },
+      done: { bg: "#dcfff1", border: "#7ee2b8", text: "#216e4e", icon: "#1f845a" },
+      cancelled: { bg: "#f1f2f4", border: "#c1c7d0", text: "#505f79", icon: "#758195" },
     },
   };
 
@@ -643,14 +695,15 @@ function buildSvgExport() {
     colWidth: 190,
     gap: 14,
     cardHeight: 104,
-    detailCardHeight: 104,
+    detailCardMinHeight: 104,
     emptyHeight: 56,
     versionDividerGap: 28,
     radius: 8,
     cardPaddingX: 10,
     titleY: 30,
     titleLineHeight: 17,
-    chipHeight: 16,
+    chipHeight: 26,
+    getDetailHeight: (detail) => estimateSvgDetailCardHeight(detail, metrics),
   };
 
   const row1Y = metrics.padding;
@@ -789,11 +842,15 @@ function buildSvgExport() {
 
       version.details.forEach((detail, index) => {
         const status = normalizeStatus(detail.status);
-        const y = contentY + index * (metrics.detailCardHeight + metrics.gap);
+        const detailHeight = metrics.getDetailHeight(detail);
+        const previousHeights = version.details
+          .slice(0, index)
+          .reduce((sum, previousDetail) => sum + metrics.getDetailHeight(previousDetail), 0);
+        const y = contentY + previousHeights + index * metrics.gap;
         const muted = !selectedStatuses.has(status);
         const opacity = muted ? 0.35 : 1;
         svg.push(
-          `<rect x="${colX}" y="${y}" width="${metrics.colWidth}" height="${metrics.detailCardHeight}" rx="${metrics.radius}" ry="${metrics.radius}" fill="${colors.detail}" opacity="${opacity}" />`,
+          `<rect x="${colX}" y="${y}" width="${metrics.colWidth}" height="${detailHeight}" rx="${metrics.radius}" ry="${metrics.radius}" fill="${colors.detail}" opacity="${opacity}" />`,
         );
         svg.push(
           textBlock(
@@ -807,15 +864,19 @@ function buildSvgExport() {
 
         if (!uiState.maskDetailStatus) {
           const chipLabel = xmlEscape(DETAIL_STATUS_LABELS[status] || DETAIL_STATUS_LABELS.to_analyze);
-          const chipW = Math.max(52, chipLabel.length * 5.2 + 12);
-          const chipX = colX + metrics.colWidth - chipW - 8;
-          const chipY = y + metrics.detailCardHeight - metrics.chipHeight - 8;
-          const chipColor = colors.chip[status] || colors.chip.to_analyze;
+          const chipIcon = xmlEscape(DETAIL_STATUS_ICONS[status] || DETAIL_STATUS_ICONS.to_analyze);
+          const chipStyle = colors.chip[status] || colors.chip.to_analyze;
+          const chipW = Math.max(76, chipLabel.length * 6 + 34);
+          const chipX = colX + (metrics.colWidth - chipW) / 2;
+          const chipY = y + detailHeight - metrics.chipHeight - 8;
           svg.push(
-            `<rect x="${chipX}" y="${chipY}" width="${chipW}" height="${metrics.chipHeight}" rx="8" ry="8" fill="${chipColor}" opacity="${opacity}" />`,
+            `<rect x="${chipX}" y="${chipY}" width="${chipW}" height="${metrics.chipHeight}" rx="13" ry="13" fill="${chipStyle.bg}" stroke="${chipStyle.border}" opacity="${opacity}" />`,
           );
           svg.push(
-            `<text x="${chipX + chipW / 2}" y="${chipY + 11}" fill="#ffffff" font-family="Avenir Next, Segoe UI, sans-serif" font-size="9" font-weight="500" text-anchor="middle" opacity="${opacity}">${chipLabel}</text>`,
+            `<text x="${chipX + 12}" y="${chipY + 17}" fill="${chipStyle.icon}" font-family="Avenir Next, Segoe UI, sans-serif" font-size="12" font-weight="700" opacity="${opacity}">${chipIcon}</text>`,
+          );
+          svg.push(
+            `<text x="${chipX + 27}" y="${chipY + 17}" fill="${chipStyle.text}" font-family="Avenir Next, Segoe UI, sans-serif" font-size="10" font-weight="700" opacity="${opacity}">${chipLabel}</text>`,
           );
         }
       });
@@ -1209,6 +1270,7 @@ function createVersionSeparatorRow(columns, totalColumns, versionIndex) {
 
 function render() {
   board.innerHTML = "";
+  detailHeightCache.clear();
 
   if (!activities.length) {
     const empty = document.createElement("div");
@@ -1223,7 +1285,7 @@ function render() {
 
   const columns = getBoardColumns();
   const totalColumns = columns.length;
-  const layoutMetrics = { detailCardHeight: 104, gap: 10, emptyHeight: 56 };
+  const layoutMetrics = { gap: 12, emptyHeight: 56, getDetailHeight: measureDetailCardHeight };
   const { maxVersionCount, rowHeights } = getBoardVersionLayout(columns, layoutMetrics);
   grid.style.gridTemplateColumns = `repeat(${totalColumns}, var(--col-width))`;
   grid.style.gridTemplateRows = [
