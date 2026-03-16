@@ -1,5 +1,6 @@
 const STORAGE_KEY = "user-story-map-v1";
 const UI_STORAGE_KEY = "user-story-map-ui-v1";
+const DEFAULT_MAP_TITLE = "User Story Map Builder";
 const DETAIL_STATUS = ["to_analyze", "to_estimate", "ready", "in_progress", "done", "cancelled"];
 const DETAIL_STATUS_LABELS = {
   to_analyze: "To analyze",
@@ -8,6 +9,14 @@ const DETAIL_STATUS_LABELS = {
   in_progress: "In progress",
   done: "Done",
   cancelled: "Cancelled",
+};
+const DETAIL_STATUS_ICONS = {
+  to_analyze: "◎",
+  to_estimate: "◌",
+  ready: "●",
+  in_progress: "↻",
+  done: "✓",
+  cancelled: "×",
 };
 const VALID_FILTERS = ["all", ...DETAIL_STATUS];
 
@@ -89,6 +98,7 @@ const seedData = [
 let activities = loadState();
 
 const board = document.getElementById("board");
+const pageTitle = document.getElementById("page-title");
 const addActivityBtn = document.getElementById("add-activity");
 const toggleLegendBtn = document.getElementById("toggle-legend");
 const statusFilter = document.getElementById("status-filter");
@@ -120,6 +130,26 @@ const dropIndicator = document.createElement("div");
 dropIndicator.id = "drop-indicator";
 document.body.appendChild(dropIndicator);
 let uiState = loadUIState();
+
+pageTitle.addEventListener("click", () => {
+  openEditorModal({
+    title: "Edit Title",
+    label: "Page title",
+    value: uiState.mapTitle,
+    saveText: "Save",
+    onSave: (nextTitle) => {
+      uiState.mapTitle = nextTitle;
+      persistUIState();
+      applyMapTitleState();
+    },
+  });
+});
+
+pageTitle.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter" && event.key !== " ") return;
+  event.preventDefault();
+  pageTitle.click();
+});
 
 addActivityBtn.addEventListener("click", () => {
   openEditorModal({
@@ -252,7 +282,14 @@ function loadState() {
 function loadUIState() {
   try {
     const raw = localStorage.getItem(UI_STORAGE_KEY);
-    if (!raw) return { legendCollapsed: false, detailFilter: [...DETAIL_STATUS], maskDetailStatus: false };
+    if (!raw) {
+      return {
+        legendCollapsed: false,
+        detailFilter: [...DETAIL_STATUS],
+        maskDetailStatus: false,
+        mapTitle: DEFAULT_MAP_TITLE,
+      };
+    }
     const parsed = JSON.parse(raw);
     const rawFilter = Array.isArray(parsed?.detailFilter) ? parsed.detailFilter : [parsed?.detailFilter].filter(Boolean);
     const normalizedFilter = rawFilter.map((status) => normalizeStatus(status));
@@ -261,10 +298,21 @@ function loadUIState() {
       legendCollapsed: Boolean(parsed?.legendCollapsed),
       detailFilter,
       maskDetailStatus: Boolean(parsed?.maskDetailStatus),
+      mapTitle: String(parsed?.mapTitle || DEFAULT_MAP_TITLE),
     };
   } catch {
-    return { legendCollapsed: false, detailFilter: [...DETAIL_STATUS], maskDetailStatus: false };
+    return {
+      legendCollapsed: false,
+      detailFilter: [...DETAIL_STATUS],
+      maskDetailStatus: false,
+      mapTitle: DEFAULT_MAP_TITLE,
+    };
   }
+}
+
+function applyMapTitleState() {
+  pageTitle.textContent = uiState.mapTitle;
+  document.title = uiState.mapTitle;
 }
 
 function applyLegendState() {
@@ -572,21 +620,21 @@ function getBoardVersionLayout(columns, metrics) {
 
 function buildSvgExport() {
   const colors = {
-    background: "#ffffff",
-    text: "#0f1b36",
-    activity: "#6f8cf4",
-    step: "#8be5b2",
-    detail: "#f4ecab",
-    emptyBg: "#f0f3f8",
-    emptyStroke: "#b2bfd3",
-    divider: "#202a3a",
+    background: "#f4f5f7",
+    text: "#172b4d",
+    activity: "#deebff",
+    step: "#def6ea",
+    detail: "#ffffff",
+    emptyBg: "#fafbfc",
+    emptyStroke: "#c1c7d0",
+    divider: "#85b8ff",
     chip: {
-      to_analyze: "#dc2626",
-      to_estimate: "#f97316",
-      ready: "#2563eb",
-      in_progress: "#7c3aed",
-      done: "#15803d",
-      cancelled: "#6b7280",
+      to_analyze: "#c9372c",
+      to_estimate: "#f79009",
+      ready: "#0c66e4",
+      in_progress: "#6554c0",
+      done: "#1f845a",
+      cancelled: "#758195",
     },
   };
 
@@ -939,7 +987,18 @@ function makeNote(
     note.classList.add(`detail-status-${detailStatus}`);
     const chip = document.createElement("div");
     chip.className = `detail-status-chip status-${detailStatus}`;
-    chip.textContent = DETAIL_STATUS_LABELS[detailStatus] || DETAIL_STATUS_LABELS.to_analyze;
+    chip.setAttribute("aria-label", DETAIL_STATUS_LABELS[detailStatus] || DETAIL_STATUS_LABELS.to_analyze);
+
+    const chipIcon = document.createElement("span");
+    chipIcon.className = "detail-status-chip-icon";
+    chipIcon.setAttribute("aria-hidden", "true");
+    chipIcon.textContent = DETAIL_STATUS_ICONS[detailStatus] || DETAIL_STATUS_ICONS.to_analyze;
+
+    const chipLabel = document.createElement("span");
+    chipLabel.className = "detail-status-chip-label";
+    chipLabel.textContent = DETAIL_STATUS_LABELS[detailStatus] || DETAIL_STATUS_LABELS.to_analyze;
+
+    chip.append(chipIcon, chipLabel);
     note.appendChild(chip);
   }
 
@@ -1414,6 +1473,7 @@ function render() {
 }
 
 render();
+applyMapTitleState();
 applyLegendState();
 applyFilterState();
 applyStatusMaskState();
